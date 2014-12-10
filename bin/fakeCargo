@@ -1,0 +1,81 @@
+require "fakeCargo"
+require 'pp'
+
+FC = FakeCargo
+
+class Processor
+  def initialize(options)
+    @root = FC::Env.new(options.output_dir || '.', '')
+    @fetch = FC::Fetch.new(options.git_dir || '.')
+    if ! File.directory?(@root.dir)
+      raise Exception, "#{@root.dir} is not a directory."
+    end
+    action = options.command || "build"
+    @action = self.method(action)
+  end
+  
+  attr_reader :root
+  def root_file(filename)
+    env = @root.new_child(File.basename(File.dirname(filename)), File.dirname(filename))
+    self.process_file(env, filename)
+  end
+  def process_file(env, filename)
+    puts("processing #{filename}")
+    toml = TOML.load_file(filename)
+    pp(toml)
+    crate = FakeCargo::Crate.new(filename, toml)
+    crate.dependencies.each do |dep|
+      child = @fetch.fetch(env, crate, dep)
+      self.process_file(child.env, child.env.path + '/Cargo.toml')
+    end
+    @action.call(env, crate)
+  end
+
+  def exec(cmdline)
+    cmdline_ = "rustc #{cmdline.join(' ')}"
+    puts(cmdline_)
+    system("env CARGO_PKG_VERSION_MAJOR=0 CARGO_PKG_VERSION_MINOR=1 CARGO_PKG_VERSION_PATCH=0 CFG_VERSION=0.1.0 #{cmdline_}")
+    if File::exists?(@root.dir + '/liblib.rlib')
+      raise(Exception, "created liblib.rlib")
+    end
+  end
+  
+  def show(env, crate)
+    pp(builddir: env.dir, cmdline: crate.cmdline.join(' '))
+  end
+  def libpaths(env)
+    env.children.inject([ env.dir ]) do |memo, child|
+      memo + libpaths(child)
+    end
+  end
+  def build(env, crate)
+    puts("mkdir #{env.dir}")
+    if ! File.directory?(env.dir)
+      system("mkdir -p #{env.dir}")
+    end
+    libpaths = self.libpaths(env)
+    cmdline = []
+=begin
+    cmdline += libpaths.map { |path| [ '-L', path ] }.flatten
+=end
+    cmdline += crate.cmdline
+    cmdline += [ '-L', @root.dir ]
+    cmdline += env.children.map do |child|
+      if child.name
+        [ '-l', child.name ]
+      else
+        []
+      end
+    end.flatten
+    cmdline += [ '--out-dir', @root.dir ]
+    self.exec(cmdline + [ '--crate-type', 'lib' ])
+    self.exec(cmdline + [ '--crate-type', 'dylib' ])
+  end
+end
+
+opts, files = FC::Options.from_cmd_line(ARGV)
+processor = Processor.new(opts)
+
+files.each do |file|
+  processor.root_file(file)
+end
