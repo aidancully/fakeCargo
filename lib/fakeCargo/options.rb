@@ -2,13 +2,19 @@ require 'optparse'
 
 module FakeCargo
   class Options
-    def initialize(output_dir)
+    def initialize(output_dir, git_dir, command)
       @output_dir = output_dir
+      @git_dir = git_dir
+      @command = command
     end
     attr_reader :output_dir
+    attr_reader :git_dir
+    attr_reader :command
 
     def self.from_cmd_line(argv_)
       output_dir = nil
+      git_dir = nil
+      command = nil
 
       oparser = OptionParser.new do |opts|
         opts.on(
@@ -16,6 +22,20 @@ module FakeCargo
           "Build libraries into OUTPUTDIR"
         ) do |output_dir_|
           output_dir = output_dir_
+        end
+
+        opts.on(
+          '-g', '--git-dir GITDIR',
+          "Build libraries into GITDIR"
+        ) do |git_dir_|
+          git_dir = git_dir_
+        end
+
+        opts.on(
+          '-c', '--command COMMAND',
+          "Run command COMMAND"
+        ) do |command_|
+          command = command_
         end
 
         opts.on_tail('-h', '--help', "Show this message") do
@@ -30,7 +50,7 @@ module FakeCargo
 
       argv = argv_.dup
       oparser.parse!(argv)
-      return [ self.new(output_dir), argv ]
+      return [ self.new(output_dir, git_dir, command), argv ]
     end
   end
 end
